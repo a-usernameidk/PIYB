@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Python in your browser</title>
+<style>
+/* Fonts: system stacks only, so the page makes no third-party font requests.
+   To self-host Inter / JetBrains Mono, add @font-face rules pointing at woff2 files in your repo. */
+:root{
+  --bg:#f6f7f9;--panel:#fff;--ink:#1a1d24;--mute:#6a7280;--line:#e4e7ec;--soft:#f0f2f5;
+  --accent:#2f5bea;--accent-ink:#fff;--err:#c62828;
+  --ui:"Inter","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Noto Sans","Helvetica Neue",sans-serif;
+  --mono:"JetBrains Mono","Cascadia Code","Fira Code","SF Mono",ui-monospace,Consolas,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0e1015;--panel:#161920;--ink:#e8eaef;--mute:#8b94a5;--line:#252a33;--soft:#1d212a;
+  --accent:#6f95ff;--accent-ink:#0b1020;--err:#ff8a80;
+}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;background:var(--bg);color:var(--ink);font:14px/1.5 var(--ui);letter-spacing:-.003em;-webkit-font-smoothing:antialiased}
+header{display:flex;align-items:center;gap:10px;padding:12px 16px}
+h1{font-size:15px;margin:0;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#status{color:var(--mute);font-size:13px;white-space:nowrap}
+button,select{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+button:hover,select:hover{border-color:var(--mute)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#run{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600;padding:6px 18px}
+#run:disabled{opacity:.45;cursor:wait}
+#stop{display:none}
+main{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 16px 16px}
+@media (max-width:760px){main{grid-template-columns:1fr;grid-template-rows:1fr 1fr}}
+section{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.bar{display:flex;align-items:center;gap:4px;padding:6px 8px;border-bottom:1px solid var(--line);min-height:42px}
+#tabs{overflow-x:auto}
+.tab{display:flex;align-items:center;border-radius:6px;color:var(--mute);white-space:nowrap}
+.tab.on{background:var(--soft);color:var(--ink)}
+.tab button{border:0;background:transparent;color:inherit;border-radius:6px;padding:4px 8px}
+.tab .x{padding:4px 6px;opacity:.55}
+.tab .x:hover{opacity:1;color:var(--err)}
+#add{border:0;background:transparent;color:var(--mute);font-size:18px;line-height:1;padding:4px 10px}
+#code{flex:1;width:100%;resize:none;border:0;padding:16px;background:transparent;color:var(--ink);font:13.5px/1.65 var(--mono);tab-size:4;white-space:pre;overflow:auto}
+#code:focus-visible{outline:0}
+.title{color:var(--mute);font-size:13px;font-weight:500;flex:1;padding-left:6px}
+.bar .small{border:0;background:transparent;color:var(--mute);padding:4px 10px}
+.bar .small:hover{color:var(--ink)}
+#out{flex:1;margin:0;padding:16px;overflow:auto;font:13.5px/1.65 var(--mono);white-space:pre-wrap;word-break:break-word}
+#out .err{color:var(--err)}
+#out .note{color:var(--mute)}
+[hidden]{display:none!important}
+main.withLessons{grid-template-columns:minmax(260px,320px) 1fr 1fr}
+@media (max-width:1000px){main.withLessons{grid-template-columns:1fr 1fr}main.withLessons #lessons{grid-column:1/-1;max-height:38vh}}
+@media (max-width:760px){main.withLessons{grid-template-columns:1fr;grid-template-rows:auto 1fr 1fr}}
+#lessonBody{flex:1;overflow:auto;padding:4px 16px 16px}
+#lessonBody h2{font-size:15px;margin:12px 0 8px}
+#lessonBody p{margin:0 0 10px}
+#lessonBody code{font:12.5px var(--mono);background:var(--soft);padding:1px 5px;border-radius:4px}
+#lessonBody .task{border-left:3px solid var(--accent);padding:2px 0 2px 12px;margin:14px 0}
+#lessonBody .task b{display:block;font-weight:600;margin-bottom:2px}
+#lessonBody .open{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+#lessonNav{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px;border-top:1px solid var(--line);color:var(--mute);font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h1 data-i18n="title"></h1>
+  <span id="status"></span>
+  <button id="lessonsBtn" data-i18n="lessons"></button>
+  <select id="lang" data-i18n-aria="language"></select>
+  <button id="stop" data-i18n="stop" data-i18n-title="stopTip"></button>
+  <button id="run" disabled data-i18n="run" data-i18n-title="runTip"></button>
+</header>
+<main id="main">
+  <section id="lessons" hidden>
+    <div class="bar"><span class="title" data-i18n="lessons"></span><button class="small" id="lessonsClose" aria-label="×">×</button></div>
+    <div id="lessonBody"></div>
+    <div id="lessonNav"><button id="prevL" data-i18n="prev"></button><span id="lessonCount"></span><button id="nextL" data-i18n="next"></button></div>
+  </section>
+  <section>
+    <div class="bar" id="tabs"></div>
+    <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" data-i18n-aria="codeLabel"></textarea>
+  </section>
+  <section>
+    <div class="bar"><span class="title" data-i18n="output"></span><button class="small" id="clear" data-i18n="clear"></button></div>
+    <pre id="out" aria-live="polite"></pre>
+  </section>
+</main>
+
+<script>
+// ---------- translations ----------
+const I18N = {
+  en:{n:'English',lessons:'Lessons',openEx:'Open example',task:'Your turn',prev:'Back',next:'Next',title:'Python in your browser',loading:'Loading Python…',ready:'Ready',running:'Running…',run:'Run',stop:'Stop',stopTip:'Stop the running program',runTip:'Ctrl/Cmd + Enter',output:'Output',clear:'Clear',newFile:'New file',fileName:'File name',renameTip:'Double-click to rename',renamePrompt:'Rename file',delTip:'Delete {n}',delConfirm:'Delete {n}? This cannot be undone.',exists:'{n} already exists.',stopped:'Stopped.',saveFail:'Could not save: browser storage is full or blocked',loadFail:'Could not load Python: {e}\nCheck your connection and reload.',failed:'Python failed to load',codeLabel:'Python code',language:'Language'},
+  es:{n:'Español',lessons:'Lecciones',openEx:'Abrir ejemplo',task:'Tu turno',prev:'Atrás',next:'Siguiente',title:'Python en tu navegador',loading:'Cargando Python…',ready:'Listo',running:'Ejecutando…',run:'Ejecutar',stop:'Detener',stopTip:'Detener el programa en ejecución',runTip:'Ctrl/Cmd + Enter',output:'Salida',clear:'Borrar',newFile:'Archivo nuevo',fileName:'Nombre del archivo',renameTip:'Doble clic para renombrar',renamePrompt:'Renombrar archivo',delTip:'Eliminar {n}',delConfirm:'¿Eliminar {n}? No se puede deshacer.',exists:'{n} ya existe.',stopped:'Detenido.',saveFail:'No se pudo guardar: el almacenamiento del navegador está lleno o bloqueado',loadFail:'No se pudo cargar Python: {e}\nRevisa tu conexión y recarga la página.',failed:'Python no se pudo cargar',codeLabel:'Código Python',language:'Idioma'},
+  fr:{n:'Français',lessons:'Leçons',openEx:'Ouvrir l’exemple',task:'À vous de jouer',prev:'Retour',next:'Suivant',title:'Python dans votre navigateur',loading:'Chargement de Python…',ready:'Prêt',running:'Exécution…',run:'Exécuter',stop:'Arrêter',stopTip:'Arrêter le programme en cours',runTip:'Ctrl/Cmd + Entrée',output:'Sortie',clear:'Effacer',newFile:'Nouveau fichier',fileName:'Nom du fichier',renameTip:'Double-clic pour renommer',renamePrompt:'Renommer le fichier',delTip:'Supprimer {n}',delConfirm:'Supprimer {n} ? Cette action est irréversible.',exists:'{n} existe déjà.',stopped:'Arrêté.',saveFail:'Enregistrement impossible : le stockage du navigateur est plein ou bloqué',loadFail:'Impossible de charger Python : {e}\nVérifiez votre connexion et rechargez la page.',failed:'Échec du chargement de Python',codeLabel:'Code Python',language:'Langue'},
+  de:{n:'Deutsch',lessons:'Lektionen',openEx:'Beispiel öffnen',task:'Du bist dran',prev:'Zurück',next:'Weiter',title:'Python in deinem Browser',loading:'Python wird geladen…',ready:'Bereit',running:'Läuft…',run:'Ausführen',stop:'Stopp',stopTip:'Laufendes Programm stoppen',runTip:'Strg/Cmd + Enter',output:'Ausgabe',clear:'Leeren',newFile:'Neue Datei',fileName:'Dateiname',renameTip:'Doppelklick zum Umbenennen',renamePrompt:'Datei umbenennen',delTip:'{n} löschen',delConfirm:'{n} löschen? Das lässt sich nicht rückgängig machen.',exists:'{n} existiert bereits.',stopped:'Gestoppt.',saveFail:'Speichern nicht möglich: Der Browserspeicher ist voll oder gesperrt',loadFail:'Python konnte nicht geladen werden: {e}\nPrüfe deine Verbindung und lade die Seite neu.',failed:'Python konnte nicht geladen werden',codeLabel:'Python-Code',language:'Sprache'},
+  pt:{n:'Português',lessons:'Lições',openEx:'Abrir exemplo',task:'Sua vez',prev:'Voltar',next:'Próxima',title:'Python no seu navegador',loading:'Carregando Python…',ready:'Pronto',running:'Executando…',run:'Executar',stop:'Parar',stopTip:'Parar o programa em execução',runTip:'Ctrl/Cmd + Enter',output:'Saída',clear:'Limpar',newFile:'Novo arquivo',fileName:'Nome do arquivo',renameTip:'Clique duas vezes para renomear',renamePrompt:'Renomear arquivo',delTip:'Excluir {n}',delConfirm:'Excluir {n}? Isso não pode ser desfeito.',exists:'{n} já existe.',stopped:'Interrompido.',saveFail:'Não foi possível salvar: o armazenamento do navegador está cheio ou bloqueado',loadFail:'Não foi possível carregar o Python: {e}\nVerifique sua conexão e recarregue.',failed:'Falha ao carregar o Python',codeLabel:'Código Python',language:'Idioma'},
+  ru:{n:'Русский',lessons:'Уроки',openEx:'Открыть пример',task:'Ваша очередь',prev:'Назад',next:'Далее',title:'Python в браузере',loading:'Загрузка Python…',ready:'Готово',running:'Выполняется…',run:'Запустить',stop:'Стоп',stopTip:'Остановить программу',runTip:'Ctrl/Cmd + Enter',output:'Вывод',clear:'Очистить',newFile:'Новый файл',fileName:'Имя файла',renameTip:'Двойной щелчок — переименовать',renamePrompt:'Переименовать файл',delTip:'Удалить {n}',delConfirm:'Удалить {n}? Это действие нельзя отменить.',exists:'Файл {n} уже существует.',stopped:'Остановлено.',saveFail:'Не удалось сохранить: хранилище браузера переполнено или заблокировано',loadFail:'Не удалось загрузить Python: {e}\nПроверьте подключение и перезагрузите страницу.',failed:'Не удалось загрузить Python',codeLabel:'Код Python',language:'Язык'},
+  zh:{n:'简体中文',lessons:'课程',openEx:'打开示例',task:'轮到你了',prev:'上一课',next:'下一课',title:'在浏览器中运行 Python',loading:'正在加载 Python…',ready:'就绪',running:'运行中…',run:'运行',stop:'停止',stopTip:'停止正在运行的程序',runTip:'Ctrl/Cmd + Enter',output:'输出',clear:'清除',newFile:'新建文件',fileName:'文件名',renameTip:'双击重命名',renamePrompt:'重命名文件',delTip:'删除 {n}',delConfirm:'删除 {n}？此操作无法撤销。',exists:'{n} 已存在。',stopped:'已停止。',saveFail:'无法保存：浏览器存储已满或被禁用',loadFail:'无法加载 Python：{e}\n请检查网络连接并刷新页面。',failed:'Python 加载失败',codeLabel:'Python 代码',language:'语言'},
+  ja:{n:'日本語',lessons:'レッスン',openEx:'例を開く',task:'やってみよう',prev:'戻る',next:'次へ',title:'ブラウザで Python',loading:'Python を読み込み中…',ready:'準備完了',running:'実行中…',run:'実行',stop:'停止',stopTip:'実行中のプログラムを停止',runTip:'Ctrl/Cmd + Enter',output:'出力',clear:'クリア',newFile:'新規ファイル',fileName:'ファイル名',renameTip:'ダブルクリックで名前を変更',renamePrompt:'ファイル名を変更',delTip:'{n} を削除',delConfirm:'{n} を削除しますか？この操作は元に戻せません。',exists:'{n} はすでに存在します。',stopped:'停止しました。',saveFail:'保存できません：ブラウザのストレージがいっぱいか、ブロックされています',loadFail:'Python を読み込めませんでした：{e}\n接続を確認して再読み込みしてください。',failed:'Python の読み込みに失敗しました',codeLabel:'Python コード',language:'言語'}
+};
+let lang = 'en';
+try { lang = localStorage.getItem('pyweb:lang') || ''; } catch (e) {}
+if (!I18N[lang]) { const g = (navigator.language || 'en').slice(0, 2).toLowerCase(); lang = I18N[g] ? g : 'en'; }
+const t = (k, v = {}) => (I18N[lang][k] || I18N.en[k] || k).replace(/\{(\w+)\}/g, (_, x) => v[x]);
+
+// ---------- elements ----------
+const $ = id => document.getElementById(id);
+const code = $('code'), out = $('out'), runBtn = $('run'), stopBtn = $('stop'), statusEl = $('status'), tabs = $('tabs'), langSel = $('lang');
+let statusKey = 'loading';
+function setStatus(k) { statusKey = k; statusEl.textContent = t(k); }
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = t('title');
+  document.querySelectorAll('[data-i18n]').forEach(el => el.textContent = t(el.dataset.i18n));
+  document.querySelectorAll('[data-i18n-title]').forEach(el => el.title = t(el.dataset.i18nTitle));
+  document.querySelectorAll('[data-i18n-aria]').forEach(el => el.setAttribute('aria-label', t(el.dataset.i18nAria)));
+  setStatus(statusKey);
+  renderTabs();
+  renderLesson();
+}
+Object.keys(I18N).forEach(k => langSel.add(new Option(I18N[k].n, k)));
+langSel.value = lang;
+langSel.onchange = () => { lang = langSel.value; try { localStorage.setItem('pyweb:lang', lang); } catch (e) {} applyLang(); };
+
+// ---------- storage ----------
+const KEY = 'pyweb:v1';
+const STARTER = `# Press Run (or Ctrl/Cmd + Enter)
+def fib(n):
+    a, b = 0, 1
+    for _ in range(n):
+        yield a
+        a, b = b, a + b
+
+print(list(fib(10)))
+`;
+let state;
+try { state = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+if (!state || !state.files || !state.files[state.active]) state = { files: { 'main.py': STARTER }, active: 'main.py' };
+let saveTimer;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { setStatus('saveFail'); } }, 300);
+}
+
+// ---------- files / tabs ----------
+function renderTabs() {
+  tabs.innerHTML = '';
+  const names = Object.keys(state.files);
+  names.forEach(name => {
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (name === state.active ? ' on' : '');
+    const b = document.createElement('button');
+    b.textContent = name; b.title = t('renameTip');
+    b.onclick = () => switchTo(name);
+    b.ondblclick = () => rename(name);
+    tab.appendChild(b);
+    if (names.length > 1) {
+      const x = document.createElement('button');
+      x.className = 'x'; x.textContent = '×'; x.title = t('delTip', { n: name });
+      x.onclick = () => del(name);
+      tab.appendChild(x);
+    }
+    tabs.appendChild(tab);
+  });
+  const add = document.createElement('button');
+  add.id = 'add'; add.textContent = '+'; add.title = t('newFile');
+  add.onclick = newFile;
+  tabs.appendChild(add);
+}
+const withPy = n => n.endsWith('.py') ? n : n + '.py';
+function switchTo(name) { state.active = name; code.value = state.files[name]; renderTabs(); save(); }
+function newFile() {
+  let name = prompt(t('fileName'), 'script.py');
+  if (!name) return;
+  name = withPy(name.trim());
+  if (!state.files[name]) state.files[name] = '';
+  switchTo(name);
+}
+function rename(old) {
+  let name = prompt(t('renamePrompt'), old);
+  if (!name || name === old) return;
+  name = withPy(name.trim());
+  if (state.files[name]) { alert(t('exists', { n: name })); return; }
+  const files = {};
+  for (const k in state.files) files[k === old ? name : k] = state.files[k];
+  state.files = files;
+  if (state.active === old) state.active = name;
+  renderTabs(); save();
+}
+function del(name) {
+  if (!confirm(t('delConfirm', { n: name }))) return;
+  delete state.files[name];
+  if (state.active === name) state.active = Object.keys(state.files)[0];
+  switchTo(state.active);
+}
+
+// ---------- editor ----------
+code.addEventListener('input', () => { state.files[state.active] = code.value; save(); });
+code.addEventListener('keydown', e => {
+  if (e.key === 'Tab' && !e.shiftKey) {
+    e.preventDefault(); document.execCommand('insertText', false, '    ');
+  } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault(); run();
+  } else if (e.key === 'Enter') {
+    const v = code.value, s = code.selectionStart;
+    const line = v.slice(v.lastIndexOf('\n', s - 1) + 1, s);
+    const indent = line.match(/^\s*/)[0] + (/:\s*$/.test(line) ? '    ' : '');
+    e.preventDefault(); document.execCommand('insertText', false, '\n' + indent);
+  }
+});
+
+// ---------- Python runtime (Pyodide in a Web Worker so Stop works) ----------
+const PYODIDE = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
+const workerSrc = `
+importScripts('${PYODIDE}pyodide.js');
+let py;
+(async () => {
+  py = await loadPyodide({ indexURL: '${PYODIDE}' });
+  py.setStdout({ batched: s => postMessage({ t: 'out', s }) });
+  py.setStderr({ batched: s => postMessage({ t: 'err', s }) });
+  postMessage({ t: 'ready' });
+})().catch(e => postMessage({ t: 'fatal', s: String(e) }));
+onmessage = async e => {
+  try {
+    await py.loadPackagesFromImports(e.data);
+    await py.runPythonAsync(e.data);
+  } catch (err) { postMessage({ t: 'err', s: String(err.message || err) }); }
+  postMessage({ t: 'done' });
+};`;
+let worker, running = false;
+function startWorker() {
+  runBtn.disabled = true; setStatus('loading');
+  worker = new Worker(URL.createObjectURL(new Blob([workerSrc], { type: 'text/javascript' })));
+  worker.onmessage = e => {
+    const { t: type, s } = e.data;
+    if (type === 'ready') { runBtn.disabled = false; setStatus('ready'); }
+    else if (type === 'out') print(s + '\n');
+    else if (type === 'err') print(s + '\n', 'err');
+    else if (type === 'fatal') { setStatus('failed'); print(t('loadFail', { e: s }) + '\n', 'err'); }
+    else if (type === 'done') finish();
+  };
+}
+function print(text, cls) {
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = text;
+  out.appendChild(span);
+  out.scrollTop = out.scrollHeight;
+}
+function finish() { running = false; runBtn.style.display = ''; stopBtn.style.display = 'none'; setStatus('ready'); }
+function run() {
+  if (running || runBtn.disabled) return;
+  running = true; runBtn.style.display = 'none'; stopBtn.style.display = 'inline-block'; setStatus('running');
+  print('— ' + state.active + ' —\n', 'note');
+  worker.postMessage(code.value);
+}
+stopBtn.onclick = () => { worker.terminate(); print(t('stopped') + '\n', 'note'); finish(); startWorker(); };
+runBtn.onclick = run;
+$('clear').onclick = () => { out.textContent = ''; };
+
+// ---------- lessons (content is English for now; add LESSONS.es etc. to translate) ----------
+const LESSONS = { en: [
+  { title: '1. Print and variables',
+    body: ["A variable is a name that holds a value. Here `item_name` holds the text `orange`.",
+           "Text goes inside quotes. `print()` shows something in the Output panel.",
+           "Use `+` to glue text together. Python doesn't add spaces for you, so put them inside the quotes."],
+    code: ["item_name = 'orange'", "", "print('Hello ' + item_name)", "print('Hello ' + item_name + ' hello ' + item_name)"],
+    task: "Change item_name to something else and run it again. Then add a second variable and print it too." },
+  { title: '2. Numbers and f-strings',
+    body: ["Numbers don't go in quotes, and you can do maths with them: `+ - * /`.",
+           "Gluing a number onto text with `+` gives an error. An f-string fixes that: put `f` before the quote and wrap variables in `{}`."],
+    code: ["name = 'Sam'", "age = 12", "", "# print('I am ' + age)   <- remove the # to see the error", "print(f'Hello, my name is {name} and I am {age} years old.')", "print(f'Next year I will be {age + 1}.')"],
+    task: "Add a favourite_food variable and a line that says what it is. Do some maths inside the {} too." },
+  { title: '3. If and for',
+    body: ["`if` runs code only when something is true. The indented lines under it belong to it, so keep the 4 spaces.",
+           "`for` repeats code. `range(5)` counts 0, 1, 2, 3, 4."],
+    code: ["age = 12", "", "if age >= 18:", "    print('Adult ticket')", "else:", "    print('Kid ticket')", "", "for i in range(5):", "    print(f'Round {i + 1}')"],
+    task: "Change age and see which message you get. Then make the loop go up to 10." }
+] };
+let lessonIdx = 0;
+try { lessonIdx = Math.max(0, Math.min(2, +localStorage.getItem('pyweb:lesson') || 0)); } catch (e) {}
+const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const inline = s => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>');
+function renderLesson() {
+  const list = LESSONS[lang] || LESSONS.en, L = list[lessonIdx], box = $('lessonBody');
+  box.innerHTML = '<h2>' + inline(L.title) + '</h2>' + L.body.map(p => '<p>' + inline(p) + '</p>').join('') +
+    '<div class="task"><b>' + esc(t('task')) + '</b>' + inline(L.task) + '</div>';
+  const open = document.createElement('button');
+  open.className = 'open'; open.textContent = t('openEx');
+  open.onclick = () => {
+    const name = 'lesson' + (lessonIdx + 1) + '.py';
+    if (state.files[name] === undefined) state.files[name] = L.code.join('\n') + '\n';
+    switchTo(name); code.focus();
+  };
+  box.appendChild(open);
+  $('lessonCount').textContent = (lessonIdx + 1) + ' / ' + list.length;
+  $('prevL').disabled = lessonIdx === 0;
+  $('nextL').disabled = lessonIdx === list.length - 1;
+}
+function goLesson(d) {
+  lessonIdx += d;
+  try { localStorage.setItem('pyweb:lesson', lessonIdx); } catch (e) {}
+  renderLesson();
+  $('lessonBody').scrollTop = 0;
+}
+$('prevL').onclick = () => goLesson(-1);
+$('nextL').onclick = () => goLesson(1);
+function toggleLessons(on) {
+  $('lessons').hidden = !on;
+  $('main').classList.toggle('withLessons', on);
+  try { localStorage.setItem('pyweb:lessonsOpen', on ? '1' : '0'); } catch (e) {}
+}
+$('lessonsBtn').onclick = () => toggleLessons($('lessons').hidden);
+$('lessonsClose').onclick = () => toggleLessons(false);
+try { toggleLessons(localStorage.getItem('pyweb:lessonsOpen') !== '0'); } catch (e) { toggleLessons(true); }
+
+code.value = state.files[state.active];
+applyLang();
+startWorker();
+</script>
+</body>
+</html>
